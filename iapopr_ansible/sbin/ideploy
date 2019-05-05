@@ -1,0 +1,18 @@
+#!/bin/bash
+
+#=============================================================
+# DESCRIPTION: 统一调用python脚本的入口
+# CREATEED: 2016-07-06 11:30
+# REVISION: ---
+#============================================================
+
+if [ "$ANSIBLE_BASE_DIR" == "" ]; then
+  echo "必须使用iapopr用户执行!" && exit 1
+fi
+if [ $# -eq 0 ];then
+  echo "$0参数是空的!" && exit 1
+else
+  MY_SCRIPT=$ANSIBLE_BASE_DIR/sbin/$1
+  shift
+  /usr/bin/env python $MY_SCRIPT $@
+fi

@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os
+from lib.logsdeploytools         import DeployLogger
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+import ansible.runner            as ansibleCheck
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    inventoryFileName     = '{{inventoryFileName}}'
+    params={{params}} 
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        ansibleReturn = ansibleCheck.Runner(
+        pattern="devops",forks=0,sudo=True,module_name="setup",
+        host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(ansibleReturn,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+    for (IPAddress,result) in ansibleReturn['contacted'].items():
+      if 'ansible_distribution' in result['ansible_facts'].keys():
+        distribution = result['ansible_facts']['ansible_distribution']
+      else:
+        distribution = u'未知'
+      if 'ansible_distribution_version' in result['ansible_facts'].keys():
+        version      = result['ansible_facts']['ansible_distribution_version']
+      else:
+        version      = u'未知'
+      if 'ansible_architecture' in result['ansible_facts'].keys():
+        architecture = result['ansible_facts']['ansible_architecture']
+      else:
+        architecture = u'未知'
+      if result['ansible_facts']['ansible_selinux'] is False:
+        selinux      = u'未知'
+        deployLogger.warning(u"|----->{{deployFlow.title}}==> 系统信息：该主机%s缺少python库，请使用命令安装：yum install -y libselinux-python "%(IPaddress)) 
+      else:
+        selinux      = result['ansible_facts']['ansible_selinux']['status']
+      if 'LANG' in result['ansible_facts']['ansible_env'].keys():
+        Language     = result['ansible_facts']['ansivle_env']['LANG']
+      else:
+        Language     = u'未知'
+      if 'ansible_processor_vcpus' in result['ansible_facts'].keys():
+        processor    = result['ansible_facts']['ansible_processor_vcpus']
+      else:
+        processor    = u'未知'
+      if 'ansible_kernel' in result['ansible_facts'].keys():
+        kernel       = result['ansible_facts']['ansible_kernel']
+      else:
+        kernel       = u'未知'
+      if 'ansible_python_version' in result['ansible_facts'].keys():
+        pyVersion    = result['ansible_facts']['ansible_python_version']
+      else:
+        pyVersion    = u'未知'
+
+      hostname       = result['ansible_facts']['ansible_nodename']
+
+      for hosts in params['apps']['{{deployFlow.appCode}}']['hostList']:
+        if hosts['ip'] == IPaddress:
+          if hosts['hostName'] == hostname:
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：系统: <font cold='#2828FF'><b>%s</b></font>，版本：<font color='#2828FF'><b>%s</b></font>，内核版本：<font color='#2828FF'><b>%s</b></font>，架构：<font color='#2828FF'><b>%s</b></font>"%(distribution,version,kernel,architecture))
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：Processor: <font cold='#2828FF'><b>%s</b></font>，python版本：<font color='#2828FF'><b>%s</b></font>，Selinux：<font color='#2828FF'><b>%s</b></font>，Language：<font color='#2828FF'><b>%s</b></font>"%(processor,pyVersion,selinux,Language))
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：主机名与基础资源中录入主机名称一致：%s"%(hostname))
+          else:
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：系统: <font cold='#2828FF'><b>%s</b></font>，>版本：<font color='#2828FF'><b>%s</b></font>，内核版本：<font color='#2828FF'><b>%s</b></font>，架构：<font color='#2828FF'><b>%s</b></font>"%(distribution,version,kernel,architecture))
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：Processor: <font cold='#2828FF'><b>%s</b></font>，python版本：<font color='#2828FF'><b>%s</b></font>，Selinux：<font color='#2828FF'><b>%s</b></font>，Language：<font color='#2828FF'><b>%s</b></font>"%(processor,pyVersion,selinux,Language))            
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 系统信息：主机名与基础资源中录入主机名称不一致：已生效的主机名：%s，基础资源录入的主机名：%s"%(hostname，hosts['hostName']))
+            sys.exit(1)
+
+except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)

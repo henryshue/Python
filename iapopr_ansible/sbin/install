@@ -1,0 +1,195 @@
+#!/usr/bin/env python
+#------coding: utf-8-----------------
+import optparse,sys,random,string,os,stat
+import subprocess, traceback
+from lib.logsdeploytools    import DeployLogger
+from lib.configdeploytools  import deployconfig
+from lib.httpdeploytools    import get_unpack_data
+from lib.httpdeploytools    import post_result_to_interface as sendResult
+from jinja2                 import Environment
+from jinja2                 import FileSystemLoader
+from lib.deploytools        import get_bin_file_path
+from lib.deploytools        import delete_file_dir
+from lib.deploytools        import unpack_deploy_package
+from lib.deploytools        import create_inventory_file, decrypted_interface_password
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+p = optparse.OptionParser()
+p.add_option("-c", "--code", dest="taskId", help=u"任务ID!")
+opt, args = p.parse_args()
+
+deployLogger = DeployLogger()
+deployLogger.setConsoleLog(True)
+
+if opt.taskId == None:
+    deployLogger.error(u"没有任务ID参数")
+    sys.exit()
+
+try:
+    env                                  = Environment(loader= FileSystemLoader(deployconfig().get_repos_dirs(),'utf-8'))
+    get_flowinfo_interface               = deployconfig().get_flowinfo_interface(opt.taskId)
+    startFlow_interface                  = deployconfig().get_startflow_interface()
+    stoptFlow_interface                  = deployconfig().post_endflow_interface()
+    setDeployResult_interface            = deployconfig().post_setdeployresult_interface(opt.taskId)
+    innums                               = 0
+    fengexian                            = 110 * '='
+    inventoryFileName                    = ''
+    updir                                = deployconfig().get_unpack_dirs()+'/'+opt.taskId
+
+    print("updir=%s"%(updir))
+
+    deployLogger.info(u"<font color='#2828FF'>%s</font>"%(fengexian))
+    taskId,globalParams, flows, params, packageAddress = get_unpack_data(get_flowinfo_interface)
+    if globalParams is not None and taskId is not None:
+        deployLogger.info(u"<font color='#2828FF'>本次部署所使用的部署环境:  %s, 环境ID: %s, 部署用户: %s, 部署机IP: %s, 部署任务ID: %s</font>"%(
+            globalParams['envName'],
+            globalParams['envId'],
+            globalParams['deployUser'],
+            globalParams['deployIp'],
+            taskId))
+    else:
+        deployLogger.error(u"数据错误，请检查接口返回的数据中: globalParams or taskId")
+        deployLogger.infoJboss(u".]]$$")
+        sys.exit()
+    if packageAddress is not None:
+        if packageAddress != "None":
+            unpackPath = updir + '/' + 'application';
+            if os.path.isfile(packageAddress):
+                deployLogger.info(u"<font color='#2828FF'>本次部署的部署包:  %s</font>"%(packageAddress))
+                delete_file_dir(unpackPath)
+
+                print("packageAddress=%s"%(packageAddress))
+		print("unpackPath=%s"%(unpackPath))
+
+                unpack_deploy_package(packageAddress, unpackPath)
+                print("unpackPath=%s"%(unpackPath))
+                if os.path.isdir(unpackPath):
+                    deployLogger.info(u"<font color='#2828FF'>解压部署包成功，路径为 :  %s </font>"%(unpackPath))
+                else:
+                    deployLogger.error(u"解压部署包失败: %s"%(unpackPath))
+                    sendResult(setDeployResult_interface+'/2')
+                    deployLogger.infoJboss(u".]]$$")
+                    sys.exit()
+            else:
+                delete_file_dir(unpackPath)
+                deployLogger.error(u"源文件不存在: %s 原因可能是：部署机上没有挂载基础资源基础包的共享目录或者部署包已被删除"%(packageAddress))
+                sendResult(setDeployResult_interface+'/2')
+                deployLogger.infoJboss(u".]]$$")
+                sys.exit()
+    else:
+        pass
+    deployLogger.info(u"<font color='#2828FF'后台python脚本的版本: 1.0.3 2018-08-08 发布</font>")
+    deployLogger.info(u"<fond color='#2828FF'>%s</font>"%(fengexian))
+
+    sqliterFilePath = '/home' + globalParams['deployUser'] + '/.autodeploy.db'
+
+    if flows is not None and params is not None:
+        deployLogger.info(u"========执行部署========")
+        for firstStepFlow in flows:
+            firstFlowId              = firstStepFlow['id']
+            startFirstFlowId        = sendResult(startFlow_interface+'/'+firstFlowId)
+            if startFirstFlowId is None:
+                delete_file_dir(updir)
+                deployLogger.infoJboss(u".]]$$")
+                sys.exit()
+            for secondStepFlow in firstStepFlow['subflows']:
+                secondFlowId = secondStepFlow['id']
+                deployLogger.info(u"<font color='#00bb00'><b>即将在节点机: %s 上执行 【%s】</b></font>"%(secondStepFlow['ip'],firstStepFlow['title']))
+                startSecondFlowId = sendResult(startFlow_interface + '/' + secondFlowId)
+                if startSecondFlowId is None:
+                    delete_file_dir(updir)
+                    deployLogger.infoJboss(u".]]$$")
+                    sys.exit()
+                inventoryData={}
+                inventoryData['deployUser'] = globalParams['deployUser']
+                inventoryData['deployPass'] = decrypted_interface_password(globalParams['deployPass'])
+                inventoryData['IPs'] = []
+                inventoryData['IPs'].append(secondStepFlow['ip'])
+                inventoryFileName           = create_inventory_file(inventoryData)
+                for thirdStepFlow in secondStepFlow['subflows']:
+                    res                          = {}
+                    res['taskId']                = taskId
+                    res['globalParams']          = globalParams
+                    res['params']                = params
+                    res['deployFlow']            = thirdStepFlow
+                    res['inventoryFileName']     = inventoryFileName
+                    res['currentNode']           = secondStepFlow['ip']
+                    res['sqliteFilePath']        = sqliterFilePath
+                    cmdCode                      = thirdStepFlow['cmdCode']
+                    thirdFlowId                  = thirdStepFlow['id']
+                    print(env)
+                    tc                           = env.get_template(cmdCode)
+                    c                            = tc.render(res)
+                    execFile                     = get_bin_file_path() + cmdCode + '_' + thirdFlowId + '_' + string.join(
+                    random.sample('qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM', 5), '')
+                    createExecFile               = file(execFile, 'w')
+                    createExecFile.write(c+"\n")
+                    createExecFile.close()
+                    if os.path.exists(execFile) and os.path.isfile(execFile):
+                        os.chmod(execFile, stat.S_IRWXU)
+                    else:
+                        deployLogger.error(u"%s 文件不存在"%(execFile))
+                        createFileResult = sendResult(setDeployResult_interface+'/2')
+                        if createFileResult is None:
+                            delete_file_dir(updir)
+                            deployLogger.infoJboss(u".]]$$")
+                            sys.exit()
+                        startThirdFlow = sendResult(startFlow_interface + '/' + thirdFlowId)
+                        if startThirdFlow is None:
+                            delete_file_dir(execFile)
+                            delete_file_dir(updir)
+                            deployLogger.infoJboss(u".]]$$")
+                            sys.exit()
+
+                        status = subprocess.call(execFile, shell=True)
+                        innums = innums + int(status)
+                        delete_file_dir(execFile)
+                        if 0 == int(status):
+                            stopThirdFlow = sendResult(stoptFlow_interface + '/' + thirdFlowId + '/1')
+                            if stopThirdFlow is None:
+                                sendResult(setDeployResult_interface+'/2')  # 1 for success, 2 for failed
+                                delete_file_dir(updir)
+                                deployLogger.infoJboss(u".]]$$")
+                                sys.exit()
+                        else:
+                            sendResult(stoptFlow_interface + '/' + thirdFlowId  + '/2')
+                            sendResult(stoptFlow_interface + '/' + secondFlowId + '/2')
+                            sendResult(stoptFlow_interface + '/' + firstFlowId  + '/2')
+                            sendResult(setDeployResult_interface + '/2')
+                            delete_file_dir(updir)
+                            delete_file_dir(inventoryFileName)
+                            deployLogger.infoJboss(u".]]$$")
+                            sys.exit()
+                    delete_file_dir(inventoryFileName)
+                    if 0 == innums:
+                        stopSecondFlow = sendResult(stoptFlow_interface + '/' + secondFlowId + '/1')
+                        if stopSecondFlow is None:
+                            sendResult(stoptFlow_interface + '/' + firstFlowId + '/2')
+                            sendResult(setDeployResult_interface + '/2')  # 1 for success, 2 for failed
+                            delete_file_dir(updir)
+                            deployLogger.infoJboss(u".]]$$")
+                            sys.exit()
+                if 0 == innums:
+                    stopFirstFlow = sendResult(stoptFlow_interface + '/' + firstFlowId + '/1')
+                    if stopFirstFlow is None:
+                        sendResult(setDeployResult_interface + '/2')  # 1 for success, 2 for failed
+                        delete_file_dir(updir)
+                        deployLogger.infoJboss(u".]]$$")
+                        sys.exit()
+            if 0 == innums:
+                sendResult(setDeployResult_interface+'/1')
+                delete_file_dir(updir)
+                deployLogger.info(u"==========部署结束==========")
+                deployLogger.infoJboss(u".]]$$")
+    else:
+        sendResult(setDeployResult_interface+'/2')
+        deployLogger.error(u"没有数据返回")
+        deployLogger.infoJboss(u".]]$$")
+except Exception as e:
+    #sendResult(setDeployResult_interface+'/2')
+    #delete_file_dir(inventoryFileName)
+    traceback.print_exc()
+    deployLogger.error(u"执行install异常，异常信息:%s"%(e))
+    deployLogger.infoJboss(u".]]$$")

@@ -1,0 +1,203 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os,time
+from lib.logsdeploytools         import DeployLogger
+from lib.configdeploytools       import deployconfig
+from lib.httpdeploytools         import post_form_data_to_interface
+import ansible.runner            as installApp 
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    params={{params}}
+    instatus           = deployconfig().post_instance_result_interface()
+    sAppPackage        = deployconfig().get_unpack_dirs()+'/{{taskId}}/'+'application/'+'{{deployFlow.files}}'
+    inventoryFileName  = '{{inventoryFileName}}'
+    cData              = params['apps']['{{deployFlow.appCode}}']
+    installUser        = cData['installUser']
+    installCatalog     = cData['installCatalog']
+    backupappCode      = '/data/backup/{{deployFlow.appCode}}'
+    backuptaskId       = '/data/backup/{{deployFlow.appCode}}/'+time.strftime("%Y%m%d",time.localtime())+'AtTaskID{{de
+ployFlow.appTaskId}}'
+    basesoftType       = cData['type']
+    backyn             = deployconfig().get_define_backup()
+
+    if os.path.exists(sAppPackage) is False or os.path.isfile(sAppPackage) is False:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 文件不存在：%s"%(sAppPackage))
+        sys.exit(1)
+    
+    if 'jboss' == basesoftType and sAppPackage.endswith('.war'):
+        dAppPackageDir        = installCatalog + "/standalone/deployments"
+        dAppPackageName       = dAppPackageDir + '/' + os.path.basename(sAppPackage)
+    elif 'springboot' == basesoftType and sAppPackage.endswith('.jar'):
+        dAppPackageDir        = installCatalog
+        dAppPackageName       = dAppPackageDir + '/{{deployFlow.appCode}}.jar'
+    else:
+        dAppPackageDir        = installCatalog
+        dAppPackageName       = dAppPackageDir + '/' + os.path.basename(sAppPackage)
+
+    backupCatalog             = backuptaskId + dAppPackageDir
+    backupFilename            = backuptaskId + dAppPackageName
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        appDirCheck = installApp.Runner(
+            pattern="devops",forks=0,sudo=True,module_args="path="+dAppPackageDir,module_name="stat",host_list=invento
+ryFileName).run()
+    else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+        syss.exit(1)
+    ansible_errorMessage_to_Chinese(appDirCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deplo
+yuser='{{globalParams.deployUser}}')
+    for (IPaddress,result) in appDirCheck['contacted'].items():
+      if result['stat']['exists'] and result['stat']['isdir']:
+        deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：%s应用的部署目录：%s 存在，拥有者：%s 权限：%s"%(ba
+sesoftType,dAppPackageDir,result['stat']['pw_name'],result['stata']['mode']))
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 检测目录：%s应用的部署目录：%s 不存在"%(basesoftType,dAppPa
+ckageDir))
+        sys.exit(1)
+
+    if backyn == 'true':
+        FileExists    = False
+        CatalogExist  = False
+        if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+            appCheck = installApp.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+dAppPackageDir,module_name="stat",host_list=inv
+entoryFileName).run()
+        else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+            sys.exit(1)
+        ansible_errorMessage_to_Chinese(appDirCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',d
+eployuser='{{globalParams.deployUser}}')
+
+        for (IPaddress,result) in appCheck['contacted'].items():
+           if result['stat']['exists'] and result['stat']['isdir'] is False:
+             deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 存在，拥有者：%s 权限：%s"%(dAppPackageNam
+e,result['stat']['pw_name'],result['stat']['mode']))
+             FileExist = True
+           else:
+             deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 不存在，无需备份"%(dAppPackageName))
+
+        if FileExists:
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                backCatalogCheck = installApp.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+backupCatalog,module_name="stat",host_list=inve
+ntoryFileName).run()
+            else:
+               deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+               sys.exit(1)
+            ansible_errorMessage_to_Chinese(backCatalogCheck,title='{{deployFlow.title}}',deployIp='{globalParams.depl
+oyIp}}',deployuser='{{globalParams.deployUser}}')
+
+           for (IPaddress,result) in backCatalogCheck['contacted'].items():
+             if result['stat']['exists'] and result['stat']['isdir'] is False:
+               deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 存在，拥有者：%s 权限：%s"%(backupCatalo
+g,result['stat']['pw_name'],result['stat']['mode']))
+               CatalogExist = True
+             else:
+               deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 不存在，即将创建"%(backupCatalog))
+               if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                   createCatalog = installApp.Runner(
+                       pattern="devops",forks=0,sudo=True,module_args="path="+backupCatalog+" state=directory owner=" 
++ installUser+" group=" + installUser + " mode=0755",module_name="file",host_list=inventoryFileName).run()
+               else:
+                   deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                   sys.exit(1)
+               ansible_errorMessage_to_Chinese(backCatalogCheck,title='{{deployFlow.title}}',deployIp='{globalParams.d
+eployIp}}',deployuser='{{globalParams.deployUser}}')
+
+              for (IPaddress,result) in createCatalog['contacted'].items():
+                if result['changed'] and result['mode'] == '0755':
+                  deployLogger.info(u"|---->{{deployFlow.title}}==> 创建目录：备份目录：%s创建成功，拥有者：%s 权限：%
+s"%(backupCatalog,result['owner'],result['mode']))
+                 CatalogExist = True
+
+        if FileExists and CatalogExists:
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                bfExistCheck = installApp.Runner(
+                    pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="stat",host_list
+=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              sys.exit(1)
+            ansible_errorMessage_to_Chinese(bfExistCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp
+}}',deployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in bfExistCheck['contacted'].items():
+              if result['stat']['exists]' and result['stat']['isdir'] is False:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：%s 存在，本次部署为重复部署，已备份无需再
+备份，拥有者：%s 权限：%s"%(backupFilename,result['stat']['pw_name'],result['stat']['mode']))
+              else:
+                if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                  createCatalog = installApp.Runner(
+                    pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="shell",host_lis
+t=inventoryFileName).run()
+                else:
+                  deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                  sys.exit(1)
+                ansible_errorMessage_to_Chinese(bfExistCheck,title='{{deployFlow.title}}',deployIp='{globalParams.depl
+oyIp}}',deployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in bfExistCheck['contacted'].items():
+              if result['changed']:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 执行备份：%s"%(result['cmd']))
+              else:
+                deployLogger.error(u"|----{{deployFlow.title}}==> 执行备份：%s 失败"%(backupCatalog))
+                sys.exit(1)
+
+            if os.path.exits(inventoryFileName) and os.path.isfile(inventoryFileName):
+                bfCheck = installApp.Runner(
+                     pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="shell",host_li
+st=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              sys.exit(1)
+            ansible_errorMessage_to_Chinese(bfCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',d
+eployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in bfCheck['contacted'].items():
+              if result['stat']['exists]' and result['stat']['isdir'] is False:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：%s 存在，<font colod='#00bb00'><b>备份成功
+</b></font>，拥有者：%s 权限：%s"%(backupFileName,result=['stat']['mode']))
+                temps            = []
+                temps.append(backupFilename)
+                posres           = post_form_data_to_interface(deployconfig().post_backupfile_list()+'/'+IPadress+'/{{
+deployFlow.appCode}}/{{deployFlow.appTaskId}}',temps)
+                temps.remove(bacupFilename)
+                if posres is None:
+                  sys.exit(1)
+              else:
+                deployLogger.error(u"|---->{{deployFlow.title}}==> 备份检查：%s不存在，备份失败"%(backupFileName))  
+                sys.exit(1)
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      deployApp = installApp.Runner(
+        pattern="devpos",forks=0,sudo=True,modules_args="src="+sAppPackage+" dest="+dAppPackageName+" owner="+installU
+ser+" group="+installUser+" mode=0644 force=yes",
+        module_name="copy",
+        host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(deployApp,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployu
+ser='{{globalParams.deployUser}}')
+    for(IPaddress,result) in deployApp['contacted'].items():
+      if result['owner'] ==installUser:
+        deployLogger.info(u"|---->{{deployFlow.title}}==> 部署应用：%s 部署到%s成功，拥有者：%s 权限：%s"%(sAppPackage
+,dAppPackageName,result['owner'],result'[mode']))
+      else:
+        deployLogger.error(u"|----{{deployFlow.title}}==> 部署应用：%s 部署%s到%s失败"%(sAppPackage,dAppPackageName))
+        sys.exit(1)
+except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)

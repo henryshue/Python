@@ -1,0 +1,53 @@
+#!/usr/bin/env python
+#----=====-----coding: utf-8--------------
+import os, sys
+import optparse
+from lib.logsdeploytools import DeployLogger
+
+deployLogger = DeployLogger()
+deployLogger.setConsoleLog(True)
+
+p = optparse.OptionParser()
+p.add_option("-u","--user",dest="depuser",help=u"部署用户")
+p.add_option("-e","--envid",dest="deenvid",help=u"环境ID")
+p.add_option("-d","--envdel",action="store_false",dest="deenvdel",default=True,help=u"删除环境ID")
+opt, args = p.parse_args()
+
+if opt.depuser == None:
+    deployLogger.error(u"没有部署用户！")
+    sys.exit()
+if opt.deenvid == None:
+    deployLogger.error(u"没有环境ID！")
+    sys.exit()
+
+if opt.deenvdel:
+    depenvid = 'export DEENVID=' + opt.deenvid + '\n'
+else:
+    depenvid = ''
+
+bashfile = '/home/' + opt.depuser + '/.bash_profile'
+
+def check_deenvid():
+    basehpro = file(bashfile, 'r')
+    for i in bashpro.readlines():
+        if "DEENVID" in i:
+            return i
+            break
+        elif basepro.readlines == "":
+            return None
+    bashpro.close()
+
+if os.path.exists(bashfile):
+    d = check_deenvid()
+    if d is None:
+        if opt.deenvdel:
+            bashpro1 = file(bashfile,'a')
+            bashpro1.write(depenvid+'\n')
+            bashpro1.close()
+    else:
+        bashpro2 = file(bashfile, 'r')
+        s = bashpro2.read()
+        bashpro2.close()
+        bashpro3 = file(bashfile, 'w')
+        bashpro3.write(s.replace(d, depenvid))
+        bashpro3.close()

@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os
+import ansible.runner            as ansibleCheck
+from lib.logsdeploytools         import DeployLogger
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    inventoryFileName     = '{{inventoryFileName}}'
+    params={{params}} 
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        ansibleReturn = ansibleCheck.Runner(
+        pattern="devops",forks=0,sudo=True,
+        module_args="/bin/cat /etc/hosts", module_name="command",
+        host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(ansibleReturn,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+    for (IPAddress,result) in ansibleReturn['contacted'].items():
+      if result['changed']:
+        hostsCentext   = result['stdout'].strip().split('\n')
+        for hosts in params['apps']['{{deployFlow.appCode}}']['hostList']:  
+          if hosts['ip'] == IPaddress:
+            hoston = True
+            for i in hostsCentext:
+              if hoston:
+                if hosts['ip'] in i and hosts['hostName'] in i:
+                  deployLogger.info(u"|---->{{deployFlow.title}}==> 检查hosts：节点机：%s 已经配置hosts [%s]"%(hosts['ip'],i))
+                  hoston = False
+                else:
+                  if hostsCentext.index(i) == len(hostsCentext)-1:
+                    deployLogger.warning(u"|---->{{deployFlow.title}}==> 检查hosts：节点机：%s 没有配置hosts [%s]"%(hosts['ip']))
+
+except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)

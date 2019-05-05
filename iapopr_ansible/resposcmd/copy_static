@@ -1,0 +1,417 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os,string,random,time,zipfile,sqlite3
+from lib.logsdeploytools         import DeployLogger
+from lib.configdeploytools       import deployconfig
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+from lib.deploytools             import decrypted_interface_password
+from lib.httpdeploytools         import getNcessaryData
+from lib.httpdeploytools         import post_from_data_to_interface
+import ansible.runner            as copystatic
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    params             = {{params}}
+    instatus           = deployconfig().post_instance_result_interface()
+    inventoryFileName  = '{{inventoryFileName}}'
+    cData              = params['apps']['{{deployFlow.appCode}}']
+    installUser        = cData['installUser']
+    dataCatalog        = delete_endline(cData['dataCatalog'])
+    namespace          = '{{deployFlow.namespace}}'
+    parentNamespace    = '{{deployFlow.parentNamespace}}'
+    parentappCode      = params['namespace'][parentNamespace]['appCode']
+    installPassword    = decrypted_interface_password(cData['installPassword'])
+    sStaticPackage     = deploycofig().get_unpack_dirs()+'/{{taskId}}/'+'application/'+'{{deployFlw.files}}'
+    sqliterFilePath    = '{{sqliteFilePath}}'
+    backupappCode      = '/data/backup/{{deployFlow.appCode}}'
+    backuptaskId       = '/data/backup/{{deployFlow.appCode}}/'+time.strftime("%Y%m%d",time.localtime())+'AtTaskID{{deployFlow.appTaskId}}'
+    unziptmpDirName    = '/tmp/'+string.json(random.sample('qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM', 15), '')
+    backupCatalogFirstCreate = False
+    StaticDirFirstCreate     = False
+    deepDir                  = 'None'
+    zfnameList               = []
+
+    if zipfile.is_zipfile(sStaticPackage) is False:
+      deployLogger.error(u"|----->{{deployFlow.title}}==> 校验部署：%s 不是一个合格的zip格式的静态资源包"%(sStaticPackage))
+      sys.exit(1)
+    else:
+      zfs = zipfile.ZipFile(sStaticPackage,'r')
+      for zfname in zfs.namelist():
+        zfnameList.append(zfname)
+      for IC in zfs.namelist():
+        CT = 0
+        for IL in zfnameList:
+            if IC in IL:
+              CT = CT + 1
+        if CT < len(zfnameList) - 1:
+            deepDir = IC
+            break
+      zfs.close()
+
+    if deepDir.endwith('/'):
+      deepDir = deepDir.rstrip('/')
+    deepDir = os.path.dirname(deepDir)
+
+    allData = getNacessaryData('{{deployFlow.namespace}}','{{deployFlow.appCode}}',params)
+    if allData is None:
+      deployLogger.error(u"|----->{{deployFlow.title}}==> 获取数据出错")
+      sys.exit(1)
+    else:
+      if 'envParams' in allData[namespace].keys():
+          if 'catalog' in allData[namespace]['envParams'].keys():
+            catalog = allData[namespace]['envParams']['catalog']
+          else:
+            deployLogger.error(u"|----->{{deployFlow.title}}==> 请检查%s的依赖关系中依赖编码为:{{deployFlow.appCode}}中没有配置catalog(静态文件解压路径)"%(parentappCode))
+            sys.exit(1)
+
+    if catalog == '/':
+      deployLogger.error(u"|----->{{deployFlow.title}}==> 请检查%s的依赖关系中依赖编码为:{{deployFlow.appCode}}>中没有catalog(静态文件解压路径)不能是 / "%(parentappCode))
+      sys.exit(1)
+
+    if catalog == '\\':
+      deployLogger.error(u"|----->{{deployFlow.title}}==> 请检查%s的依赖关系中依赖编码为:{{deployFlow.appCode}}>中没有
+catalog(静态文件解压路径)不能是 \ "%(parentappCode))
+      sys.exit(1)
+
+    if catalog.startwith('/'):
+      catalog = catalog.lstrip('/')
+    if catalog.endwith('/'):
+      catalog = catalog.rstrip('/')
+
+    if deepDir == '':
+      bddata          = catalog
+      sStaticDir      = dataCatalog + '/' + catalog
+    else:
+      dbdata          = catalog + '/' + deepDir
+      sStaticDir      = dataCatalog + '/' + catalog + '/' + deepDir
+    backupCatalog = backuptaskId + sStaticDir
+    BACKYN        = deployconfig().get_define_backup()
+
+    conn          = sqlite3.connect(sqliteFilePath)
+    selectres     = 'None'
+    createtable   = conn.execute('''CREATE TABLE IF NOT EXISTS `static`(`taskId` int default 0 ,`staticPath` varchar(255) default NULL,`namespace` varchar(255) default NULL)''')
+    for row in conn.execue('select staticPath from static where taskId = {{taskId}} and namespace=\'{{deployFlow.parentNamespace}}\''):
+        selectres = row[0]
+        break
+    if selectres == 'None':
+        statement = 'insert into static into static(taskId,staticPath,namespace) values({{taskId}},\''+dbdata+'\',\'{{deployFlow.parentNamespace}}\')'
+        conn.execute(statement)
+    else:
+        upstatement = 'update static set staticPath=\''+dbdata+'\'where taskId={{taskId}} and namespace=\'{{deployFlow.parentNamespace}}\)'
+        conn.execute(upstatement)
+    conn.commit()
+    conn.close()
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      appDirCheck = copyStatic.Runner(
+        pattern="devops",forks=0,sudo=True,
+        module_args="path="+dConfigDir,
+        module_name="stat",host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      syss.exit(1)
+    ansible_errorMessage_to_Chinese(staticDirCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+       
+        for (IPaddress,result) in staticDirCheck['contacted'].items():
+              if result['stat']['exists'] and result['stat']['isdir']:
+                deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：%s 存在，该目录为放置静态文件的顶级目录，拥有者：%s 权限：%s"%(dConfigDir,result['stat']['pw_name'],result['stata']['mode']))
+              else:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 检测目录：静态资源数据目录顶级%s 不存在，请先部署静态资源相关文件，如果已经部署，请检查录入基础资源的{{deployFlow.appCode}}的信息是否正确"%(dataCatalog))
+                if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                  dsCheck = copyStatic.Runner(
+                    pattern="devops",forks=0,sudo=True,module_name="stat",host_list=inventoryFileName,
+                    module_args="path=" + sStaticDir).run()
+                else:
+                  deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+                  sys.exit(1)
+                ansible_errorMessage_to_Chinese(dsCheck,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+                for (IPAddress,result) in dsCheck['contacted'].items():
+                  if result['stat']['exists'] and result['stat']['isdir']:
+                    deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：%s存在，拥有者：%s 权限：%s"%(sStaticDir,result['stat']['pw_name'],result['stat']['mode']))
+                    StaticDirFirstCreate = False
+                  else:
+                    deployLogger.warnings(u"|---->{{deployFlow.title}}==>创建目录：%s即将创建"%(sStaticDir))
+                    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+            dcreatedsCheck = copyStatic.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+" state=directory owner="+installUser+" group="+installUser+" mode=755",module_name="file",host_list=inventoryFileName).run()
+        else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+            sys.exit(1)
+        ansible_errorMessage_to_Chinese(dcreatedsCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+        for (IPAddress,result) in dcreatedsCheck['contacted'].items():
+          if result['changed'] and result['mode'] == '0755':
+            deployLogger.info(u"|---->{{deployFlow.title}}==>创建目录：%s创建成功，拥有者：%s 权限：%s"%(dConfigDir,result['owner'],result['mode']))
+            StaticDirFirstCreate = True    #第一次创建静态资源目录，例如：/data/iap/webstatic.war/web/member/webapp
+          else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==>创建目录：目录%s创建失败"%(sStaticDir))
+            sys.exit(1)
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      backCatalogCheck = copyStatic.Runner(
+        pattern="devops",forks=0,sudo=True,module_args="path="+backupCatalog,module_name="stat",host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      syss.exit(1)
+    ansible_errorMessage_to_Chinese(backCatalogCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+    for (IPaddress,result) in backCatalogCheck['contacted'].items():
+      if result['stat']['exists'] and result['stat']['isdir']:
+        backupCatalogFirstCreate = True
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 检测目录：%s 不存在，即将创建"%(backupCatalog))
+        if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+          backupCatalogFirstCreate = copyStatic.Runner(
+            pattern="devops",forks=0,sudo=True,module_name="file",host_list=inventoryFileName,
+            module_args="path="+backupCatalog+" static=directory owner="+installUser+" group"+installUser+" mode=0755").run()
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+        ansible_errorMessage_to_Chinese(createBKDir,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+        for (IPAddress,result) in createConfigDir['contacted'].items():
+          if result['changed'] and result['mode'] == '0755':
+           deployLogger.info(u"|---->{{deployFlow.title}}==>创建目录：%s创建成功，拥有者：%s 权限：%s"%(dConfigDir,result['owner'],result['mode']))
+           backupCatalogFirstCreate = True
+          else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==>创建目录：目录%s创建失败"%(dConfigDir))
+            sys.exit(1)
+
+  if StaticDirFirstCreate is False: #不是第一次备份 /data/iap/webstaic.war/web/member/webapp
+    if backupCatalogFirstCreate:    #没有备份过
+      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        movefile = copyStatic.Runner(
+                pattern="devpos",forks=0,sudo=True,sudo_user=installUser,module_args='mv -f ' + sStaticDir+'/*'+backupCatalog,module_name="shell",host_list=inventoryFileName).run()
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+        sys.exit(1)
+      ansible_errorMessage_to_Chinese(movefile,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+      for(IPaddress,result) in movefile['contacted'].items():
+        if result['changed']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 执行备份：%s"%(result['cmd']))
+        else:
+          deployLogger.error(u"|----{{deployFlow.title}}==> 执行备份：%s 失败"%(backupCatalog))
+          sys.exit(1)
+
+        if os.path.exits(inventoryFileName) and os.path.isfile(inventoryFileName):
+          bfCheck = installApp.Runner(
+            pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="stat",host_list=inventoryFileName).run()
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+          sys.exit(1)
+        ansible_errorMessage_to_Chinese(bfCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+        for(IPaddress,result) in bfCheck['contacted'].items():
+          if result['stat']['exists]' and result['stat']['isdir'] is False:
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：%s 存在，<font colod='#00bb00'><b>备份成功
+</b></font>，拥有者：%s 权限：%s"%(backupFileName,result=['stat']['mode']))
+            temps            = []
+            temps.append(backupFilename)
+            posres           = post_form_data_to_interface(deployconfig().post_backupfile_list()+'/'+IPadress+'/{{deployFlow.appCode}}/{{deployFlow.appTaskId}}',temps)
+            temps.remove(bacupFilename)
+            if posres is None:
+              sys.exit(1)
+          else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==> 备份检查：%s不存在，备份失败"%(backupFileName))
+            sys.exit(1)
+      else:
+        deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：重复部署任务ID为<font color='#2828FF'>{{taskId}}</font>依赖的静态资源，备份已存在无需重复备份")
+        if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+          cleanFiles = copyStatic.Runner(
+          pattern="devpos",forks=0,sudo=True,sudo_user=installUser,modules_args='rm -rf '+sStaticDir+'/*',
+          module_name="shell",
+          host_list=inventoryFileName).run()
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+          sys.exit(1)
+        ansible_errorMessage_to_Chinese(cleanFiles,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}',tfileName=sourceFile)
+        for(IPaddress,result) in cleanFiles['contacted'].items():
+          if result['owner'] ==installUser:
+            deployLogger.info(u"|---->{{deployFlow.title}}==> 清理部署：清理重复部署且无需备份的静态资源%s"%(result'[cmd']))
+          else:
+            deployLogger.error(u"|----{{deployFlow.title}}==> 清理部署：%s失败"%(backupCatalog))
+            sys.exit(1)
+    else:
+      deployLogger.info(u"|----{{deployFlow.title}}== 备份检查：首次部署任务ID为{{taskId}}的静态资源，无需再备份")
+
+    if BACKYN == 'true':
+      if 'taskBackup' in allData.keys() and 'taskBackupId' in allData.keys():
+        backBackupId = str(allData['taskBackupId'])
+          if '{{currentNode}}' in allData['taskBackups'][taskBackupId].keys():
+            if len(allData['taskBackups'][taskBackupId]['{{currentNode}}']) != 0:
+              tkid = 'AtTaskID' + taskBackupId
+              bfileList = 'None'
+              taskidIsExist  = True
+              a = 0
+              b = 'None'
+              for f1 in allData['taskBackups'][taskBackupId]['{{currentNode}}']:
+                if f1.startwith('/data/backup/'):
+                  b = f1
+                  break
+
+              if b != 'None':
+                while taskidIsExists:
+                  deleteTaskIDDir = os.path.basename(b)
+                  if tkid in deleteTaskIDDir:
+                    taskidIsExist = False
+                    bfileList = b
+                    break
+                  else:
+                    b = os.path.dirname(b)
+                  a = a + 1
+                  if a >= 100:
+                    break
+                if bfileList != 'None':
+                  if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                    fileChecks = copyStatic.Runner(          
+                      pattern="devpos",forks=0,sudo=True,sudo_user=installUser,modules_args="path="+bfileList,
+                      module_name="stat",
+                      host_list=inventoryFileName).run()
+                  else:
+                    deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                    sys.exit(1)
+                  ansible_errorMessage_to_Chinese(fileChecks,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+                  for(IPaddress,result) in fileChecks['contacted'].items():
+                    if result['stat']['exists']:
+                      deployLogger.info(u"|---->{{deployFlow.title}}==> 检测备份：%s存在，拥有者：%s 权限：%s"%(bfileList,result['stat']['pw_name'],result['stat']['mode']))
+                      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                        clearFiles = installApp.Runner(
+                        pattern="devpos",forks=0,sudo=True,module_args="path="+bfileList,module_name="stat",host_list=inventoryFileName).run()
+                      else:
+                        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                        sys.exit(1)
+                      ansible_errorMessage_to_Chinese(clearFiles,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+  
+                      for(IPaddress,result) in clearFiles['contacted'].items():
+                        if result['changed']:
+                          deployLogger.info(u"|---->{{deployFlow.title}}==> 清理备份：rm -rf %s "%(bfileList))
+                        else:
+                          deployLogger.error(u"|---->{{deployFlow.title}}==> 清理备份：清理备份失败：%s "%(bfileList))
+                          sys.exit(1)
+                  else:
+                      deployLogger.info(u"|---->{{deployFlow.title}}== 检测备份：%s 不存在，跳过清理备份步骤"%(bfileList))
+            else:
+              deployLogger.info(u"|---->{{deployFlow.title}}== 检测备份：%s 本次清理的备份的任务ID：%s，{{currentNode}}上没有备份，跳过清理备份步骤"%(allData['taskBackupId'))
+          else:
+            deployLogger.info(u"|---->{{deployFlow.title}}== 检测备份：%s 不存在，跳过清理备份步骤")
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        allStaticDirCheck = copyStatic.Runner(
+            pattern="devpos",forks=0,sudo=True,module_args="path="+unziptmpDirName,module_name="stat",host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(allStaticDirCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+    for(IPaddress,result) in allStaticDirCheck['contacted'].items():
+      if result['stat']['exists]' and result['stat']['isdir']:
+        deployLogger.info(u"|---->{{deployFlow.title}}==> 检测目录：%s 存在，该目录为部署静态文件的临时目录，路径在/tmp下，文件名随机生成，拥有者：%s 权限：%s"%(unziptmpDirName,result['stat']['pw_name'],result['stat']['mode']))
+      else:
+        deployLogger.info(u"|---->{{deployFlow.title}}==> 检测目录：%s 目录不存在"%(unziptmpDirName))
+        if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+          createTmp = copyStatic.Runner(
+            pattern="devpos",forks=0,sudo=True,sudo_user=installUser,
+            module_args="path="+unziptmpDirName+" state=directory owner="+installUser+" group"+installUser+" mode=0755 ",
+            module_name="file",host_list=inventoryFileName).run()
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+          sys.exit(1)
+        ansible_errorMessage_to_Chinese(createTmp,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+        for (IPAddress,result) in createTmp['contacted'].items():
+          if result['changed'] and result['mode'] == '0755':
+            deployLogger.info(u"|---->{{deployFlow.title}}==>创建目录：%s创建成功，该目录为部署静态文件的临时目录，路径在/tmp下，文件名随机生成，拥有者：%s 权限：%s"%(unziptmpDirName,result['owner'],result['mode']))
+          else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==>创建目录：创建数据目录%s失败"%(unziptmpDirName))
+            sys.exit(1)
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      deployStaticToTmp = copyStatic.Runner(
+        pattern="devops",forks=0,sudo=True,module_args="src"+sStaticPackage+" dest="+unziptmpDirName+" owner="+installUser+"group="+installUser+" mode=0644 ",module_name="unarchive",host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      syss.exit(1)
+    ansible_errorMessage_to_Chinese(deployStaticToTmp,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+  for (IPaddress,result) in deployStaticToTmp['contacted'].items():
+    if result['extract_results']['rc'] == 0:
+ 
+      deployLogger.info(u"|---->{{deployFlow.title}}==> 部署文件：静态资源压缩包：%s"%(sStaticPackage))
+      deployLogger.info(u"|---->{{deployFlow.title}}==> 部署文件：静态资源压缩包：%s"%(unziptmpDirName))
+      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        setPrivileges = copyStatic.Runner(
+          pattern="devops",forks=0,sudo=True,module_name="file",host_list=inventoryFileName,
+          module_args="dest="+unziptmpDirName+" state=directory owner="+installUser+" group="+installUser+" recurse=yes").run()
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件:%s"%(inventoryFileName))
+      ansible_errorMessage_to_Chinese(setPrivileges,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+      for (IPAddress,result) in setPrivileges['contacted'].items():
+        if result['changed']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 设置权限：%s权限设置成功，拥有者：%s 权限：%s"%(unziptmpDirName,result['owner'],result['mode']))
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 设置权限：%s权限设置社保，拥有者：%s 权限：%s"%(unziptmpDirName,result['owner'],result['mode']))
+          sys.exit(1)
+
+  if deepDir == '':
+      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        moveStatic = copyStatic.Runner(
+             pattern="devops",forks=0,sudo=True,module_args='mv -f '+unziptmpDirName+'/*'+sStaticDir,module_name="shell",host_list=inventoryFileName).run()
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+        sys.exit(1)
+      ansible_errorMessage_to_Chinese(moveStatic,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+      for (IPaddress,result) in moveStatic['contacted'].items():
+        if result['changed']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 移动文件：%s"%(result['cmd']))
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 移动文件：%s 失败"%(unziptmpDirName))
+          sys.exit(1)
+  else:
+      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        moveStatic = copyStatic.Runner(             
+          pattern="devops",forks=0,sudo=True,
+          module_args='mv -f '+unziptmpDirName+'/'+deepDir+'/*'+sStaticDir,
+          module_name="shell",host_list=inventoryFileName).run()
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+        sys.exit(1)
+      ansible_errorMessage_to_Chinese(moveStatic,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+      for (IPaddress,result) in moveStatic['contacted'].items():
+        if result['changed']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 移动文件：%s"%(result['cmd']))
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 移动文件：%s 失败"%(unziptmpDirName))
+          sys.exit(1)
+
+  if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        deleteStatic = copyStatic.Runner(                       
+          pattern="devops",forks=0,sudo=True,          
+          module_args='path='+unziptmpDirName+" state=absent",
+          module_name="file",host_list=inventoryFileName).run()
+      else:
+        deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+        sys.exit(1)
+      ansible_errorMessage_to_Chinese(deleteStatic,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+      for (IPaddress,result) in deleteStatic['contacted'].items():
+        if result['changed']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 删除目录：%s删除成功"%(unzipTmpDirName))
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 删除目录：%s目录可能不存在或者被手工删除"%(unziptmpDirName))
+ except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)
+
+

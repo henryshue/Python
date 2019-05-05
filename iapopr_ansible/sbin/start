@@ -1,0 +1,102 @@
+#!/usr/bin/env python
+# ------------------coding: utf-8------------
+#
+import optparse,sys,random,string,subprocess,os,stat
+from lib.logsdeploytools    import DeployLogger
+from lib.configdeploytools  import deployconfig
+from lib.httpdeploytools    import get_unpack_ssu_data,post_result_to_interface
+from jinja2                 import Environment
+from jinja2                 import FileSystemLoader
+from lib.deploytools        import get_bin_file_path
+from lib.deploytools        import delete_file_dir
+from lib.deploytools        import decrypted_interface_password
+from lib.deploytools        import create_inventory_file
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+p = optparse.OptionParser()
+p.add_option("-c","--code",dest="applicaiton_code",help=u"应用编码")
+p.add_option("-i","--instance",dest="application_instance",help=u"实例的IP地址")
+opt,args = p.parse_args()
+
+deployLogger = DeployLogger()
+deployLoger.setConsoleLog(True)
+
+if opt.application_code == None:
+    deployLogger.error(u"没有应用编码参数！")
+    sys.exit()
+try:
+    env                       = Environment(loader = FileSystemLoader(deployconfig().get_repos_dirs(),'utf-8'))
+    get_app_data_interface    = deployconfig().get_ssu_data_interface(application_code) + '/start'
+    set_app_result_interface  = deployconfig().post_SetApp_result_interfac(application_code)
+    getAppDatadict            = get_unpack_ssu_data(get_app_data_interface)
+    deployLogger.info(u"=========开始启动服务==========")
+    if getAppDatadict != None:
+        res = {}
+        res['globalParams']                        = {}
+        res['globalParams']['envName']             = getAppDatadict['globals']['envName']
+        res['globalParams']['deployUser']          = getAppDatadict['globals']['deployUser']
+        res['globalParams']['deployIp']            = getAppDatadict['globals']['ip']
+        res['globalParams']['envId']               = getAppDatadict['globals']['id']
+        res['globalParams']['deployPass']          = decrypted_interface_password(getAppDatadict['globals']['deployPass'])
+        res['deployFlow']                          = {}
+        res['deployFlow']['appCode']               = application_code
+        res['deployFlow']['title']                 = u'启动服务'
+        res['params']                              = {}
+        res['params']['apps']                      = {}
+        res['params']['apps']['application_code']  = {}
+        res['params']['apps']['application_code']['installUser']     = getAppDatadict['installUser']
+        res['params']['apps']['application_code']['installPassword'] = getAppDatadict['installPassword']
+        res['params']['apps']['application_code']['logCatalog']      = getAppDatadict['logCatalog']
+        res['params']['apps']['application_code']['cfgCatalog']      = getAppDatadict['cfgCatalog']
+        res['params']['apps']['application_code']['configPaths']     = getAppDatadict['configPaths']
+        res['params']['apps']['application_code']['dataCatalog']     = getAppDatadict['dataCatalog']
+        res['params']['apps']['application_code']['type']            = getAppDatadict['type']
+        res['params']['apps']['application_code']['installCatalog']  = getAppDatadict['installCatalog']
+        res['params']['apps']['application_code']['hostList']        = getAppDatadict['hostList']
+        res['params']['apps']['application_code']['appCode']         = application_code
+        res['params']['apps']['application_code']['params']          = getAppDatadict['params']
+        inventoryData                                                = {}
+        inventoryData['deployUser']                                  = res['globalParams']['deployUser']
+        inventoryData['deployPass']                                  = res['globalParams']['deployPass']
+        inventoryData['IPs']                                         = []
+
+        for h in getAppDatadict['hostList']:
+            inventoryData['IPs'].append(h['ip'])
+            
+        inventoryFileName         = create_inventory_file(inventoryData)
+        res['inventoryFileName']  = inventoryFileName
+        tc = env.get_template('start_app')
+        c = tc.render(res)
+        filename = get_bin_file_pat() + 'start_app' + string.join(random.sample('qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM', 10), '')
+        test = file(filename, 'w')
+        test.write(c+"\n")
+        test.close()
+        if os.path.exists(filename):
+            if os.path.isfile(filename):
+                os.chmod(filename, stat.S_IRWXU)
+        else:
+            deployLogger.error(u"%s 文件不存在"%(fileanme))
+            result = post_result_to_interface(set_app_result_interface+'/2')
+            if result is None:
+                deployLogger.infoJboss(u".]]$$")
+                sys.exit()
+        status = subprocess.call(filename,shell=True)
+        delete_file_dir(filename)
+        delete_file_dir(inventoryFileName)
+        if 0 == int(status):
+            post_result_to_interface(set_app_result_interface+'/1')
+        else:
+            post_result_to_interface(set_app_result_interface+'/2')
+        deployLogger.info(u"============启动完毕=========")
+        deployLogger.infoJboss(u".]]$$")
+    else:
+        post_result_to_interface(set_app_result_interface+'/2')
+        deployLogger.error(u"没有数据返回]$")
+        deployLogger.infoJboss(u".]]$$")
+
+except Exception as e:
+    post_result_to_interface(set_app_result_interface+'/2')
+    delete_file_dir(inventoryFileName)
+    deployLogger.error(u"执行start异常，异常信息：%s"%(e))
+    deployLogger.infoJboss(u".]]$$")

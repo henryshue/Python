@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os,time
+from lib.logsdeploytools         import DeployLogger
+from lib.configdeploytools       import deployconfig
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+from lib.deploytools             import decrypted_interface_password
+import ansible.runner            as ansibleCheck
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    defDataSize           = deployconfig().get_define_datasize()
+    inventoryFileName     = '{{inventoryFileName}}'
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      dataCheck = ansibleCheck.Runner(
+      pattern="devops",forks=0,sudo=True,module_name="stat",
+      module_args="path=/data",host_list=inventoryFileName).run()
+  else:
+    deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+    sys.exit(1)
+  ansible_errorMessage_to_Chinese(dataCheck,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+  for (IPAddress,result) in dataCheck['contacted'].items():
+    if result['stat']['exists'] and result['stat']['isdir'] and 'pw_name' in result['stat'].keys():
+      deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：/data存在，拥有者：%s 权限：%s"%(result['stat']['pw_name'],result['stat']['mode']))
+    elif result['stat']['exists'] and result['stat']['isdir'] and 'pw_name' not in result['stat'].keys():      
+      deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：/data存在，拥有者是UID，用户可能已经被删除，请登录节点机%s使用ls -ld /data查看权限"%(result['stat']['uid'],result['stat']['mode'],IPaddress))
+      sys.exit(1)
+    else:
+      deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：/data不存在，可能是新系统，将跳过/data分区大小检查")
+      sys.exit()
+  
+  if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      ansibleReturn = ansibleCheck.Runner(
+      pattern="devops",forks=0,sudo=True,module_name="shell",
+      module_args="df -Pm /data",host_list=inventoryFileName).run()
+  else:
+    deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+    sys.exit(1)
+  ansible_errorMessage_to_Chinese(ansibleReturn,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+  for (IPAddress,result) in ansibleReturn['contacted'].items():
+    if result['changed']:
+        totle      = result['stdout'].split()[-5]
+        Avaiable     = result['stdout'].split()[-3]
+        Capacity   = result['stdout'].split()[-2].strip('%')
+        if int(Capacity) <= int(defDataSize):     
+          deployLogger.info(u"|---->{{deployFlow.title}}==>检测分区：/data分区共 %s MB，已使用：%s%%,限制使用率：%s%%，可用空间：%s%%"%(totle,Capacity,defDataSize,Available)
+          deployLogger.info(u"|---->{{deployFlow.title}}==>检测分区：分区使用率小于或等于限制使用率，继续部署")
+        else:
+          deployLogger.info(u"|---->{{deployFlow.title}}==>检测分区：/data分区共 %s MB，已使用：%s%%,限制使用率：%s%%>，可用空间：%s%%"%(totle,Capacity,defDataSize,Available)          
+          deployLogger.error(u"|---->{{deployFlow.title}}==>检测分区：分区使用率大于限制使用率，停止部署")
+          sys.exit(1)
+
+except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)     
+
+
+

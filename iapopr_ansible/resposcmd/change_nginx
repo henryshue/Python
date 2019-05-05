@@ -1,0 +1,247 @@
+#!/usr/bin/env python
+#----------coding:utf-8----------------
+#=====================================
+#--------author: hfxu.oth(iapopr)
+#-------created:2018-05-07
+#-------version:1.0.6 
+#----------code:utf-8
+import sys,traceback,os,time
+from lib.logsdeploytools         import DeployLogger
+from lib.configdeploytools       import deployconfig
+from lib.errormessagetochinese   import ansible_errorMessage_to_Chinese
+from lib.deploytools             import decrypted_interface_password
+import ansible.runner            as change_nginx
+
+reload(sys)
+sys.setdefaultcoding('utf-8')
+
+try:
+    deployLogger = DeployLogger()
+    deployLogger.setConsoleLog(True)
+    params             = {{params}}
+    getNginxDatadict   = {{getNginxDatadict}}
+    instatus           = deployconfig().post_instance_result_interface()
+    inventoryFileName  = '{{inventoryFileName}}'
+    cData              = params['apps']['{{deployFlow.appCode}}']
+    cData['currentNode'] = '{{currentNode}}'
+    installUser        = cData['installUser']
+    installCatalog     = cData['installCatalog']
+    cfgCatalog         = cData['cfgCatalog'] 
+    basesoftType       = cData['type']
+    installPassword    = decrypted_interface_password(cData['installPassword'])
+    configFiles        = '{{deployFlow.files}}'
+    backupappCode      = '/data/backup/{{deployFlow.appCode}}'
+    backuptaskId       = '/data/backup/{{deployFlow.appCode}}/'+time.strftime("%Y%m%d",time.localtime())+'AtTaskID{{deployFlow.appTaskId}}'
+    basesoftType       = cData['type']
+    backyn             = deployconfig().get_define_backup()
+    startstartScript   = installCatalog + '/bin/dservice.sh'
+    localConfPath      = getNginxDatadict['confPath'] + '/' + getNginxDatadict['domain']
+    configKeyList      = ['serverFile','upstreamFile','locationFiles','sslFile']
+
+    for k in configKeyList:
+        for f in getNginxDatadict[k]:
+            if k == 'serverFile':
+                sourceFile        = localConfPath + '/' + f
+                destinationFile   = cfgCatalog + '/app' + '/' + getNginxDatadict['domain'] + '/' + f
+            elif k == 'sslFile':
+                sourceFile        = localConfPath + '/' + f
+                destinationFile   = installCatalog + '/ssl' + '/' + getNginxDatadict['domain'] + '/' + f
+            else:
+                sourceFile        = localConfPath + '/' + getNginxDatadict['appCode'] + '/' + f
+                destinationFile   = cfgCatalog + '/apps' + '/' + getNginxDatadict['domain'] + '/' + getNginxDatadict['appCode'] + '/' + f
+
+            if os.path.exists(sourceFile) is False:
+              deployLogger.error(u"|----->{{deployFlow.title}}==>检测文件：部署机：{{globalParams.deployIp}}上没有文件：%s"${sourceFile))
+              sys.exit(1)
+            destinationFile   = destinationFile
+            dConfigDir        = os.path.dirname(destinationFile)
+            backupCatalog     = backuptaskId + dConfigDir
+            backupFilename    = backuptaskId + destinationFile
+
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+              appDirCheck = installApp.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+dAppPackageDir,module_name="stat",host_list=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              syss.exit(1)
+            ansible_errorMessage_to_Chinese(configDirCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+            for (IPaddress,result) in configDirCheck['contacted'].items():
+              if result['stat']['exists'] and result['stat']['isdir']:
+                deployLogger.info(u"|---->{{deployFlow.title}}==>检测目录：%s 存在，拥有者：%s 权限：%s"%(dConfigDir,result['stat']['pw_name'],result['stata']['mode']))
+                dirReady = True
+              else:
+                deployLogger.error(u"|---->{{deployFlow.title}}==> 检测目录：%s 不存在，即将创建"%(dConfigDir))
+                if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                  createConfigDir = change_nginx.Runner(
+                    pattern="devops",forks=0,sudo=True,module_name="file",host_list=inventoryFileName,
+                    module_args="path="+dConfigDir+" state=directory owner=" + installUser + " group=" + installUser + " mode=0755").run()
+                else:
+                  deployLogger.error(u"|---->{{deployFlow.title}}==>没有找到主机清单文件:%s"%(inventoryFileName))
+                ansible_errorMessage_to_Chinese(createConfigDir,title='{{deployFlow.title}}',deployIp='{{globalParams.deployIp}},deployParams.deployUser}}')
+                for (IPAddress,result) in createConfigDir['contacted'].items():
+                  if result['changed'] and result['mode'] == '0755':
+                    deployLogger.info(u"|---->{{deployFlow.title}}==>创建目录：%s创建成功，拥有者：%s 权限：%s"%(dConfigDir,result['owner'],result['mode']))
+                    dirReady = True
+                  else:
+                    deployLogger.error(u"|---->{{deployFlow.title}}==>创建目录：目录%s创建失败"%(dConfigDir))
+                    sys.exit(1)
+
+    if backyn == 'true':
+        FileExists    = False
+        CatalogExist  = False
+        if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+            dsCheck = change_nginx.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+destinationFile,module_name="stat",host_list=inventoryFileName).run()
+        else:
+            deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+            sys.exit(1)
+        ansible_errorMessage_to_Chinese(dsCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+        for (IPaddress,result) in dsCheck['contacted'].items():
+           if result['stat']['exists'] and result['stat']['isdir'] is False:
+             deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 存在，拥有者：%s 权限：%s"%(destinationFile,result['stat']['pw_name'],result['stat']['mode']))
+             FileExist = True
+           else:
+             deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 不存在，无需备份"%(destinationFile))
+
+        if FileExists:
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                backCatalogCheck = change_nginx.Runner(
+                pattern="devops",forks=0,sudo=True,module_args="path="+backupCatalog,module_name="stat",host_list=inventoryFileName).run()
+            else:
+               deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+               sys.exit(1)
+            ansible_errorMessage_to_Chinese(backCatalogCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+           for (IPaddress,result) in backCatalogCheck['contacted'].items():
+             if result['stat']['exists'] and result['stat']['isdir'] is False:
+               deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 存在，拥有者：%s 权限：%s"%(backupCatalog,result['stat']['pw_name'],result['stat']['mode']))
+               CatalogExist = True
+             else:
+               deployLogger.info(u"|---->{{deployFlow.title}}==> 检测文件：%s 不存在，即将创建"%(backupCatalog))
+               if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                   createCatalog = installApp.Runner(
+                       pattern="devops",forks=0,sudo=True,module_args="path="+backupCatalog+" state=directory owner=" + installUser+" group=" + installUser + " mode=0755",module_name="file",host_list=inventoryFileName).run()
+               else:
+                   deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                   sys.exit(1)
+               ansible_errorMessage_to_Chinese(backCatalogCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+              for (IPaddress,result) in createCatalog['contacted'].items():
+                if result['changed'] and result['mode'] == '0755':
+                  deployLogger.info(u"|---->{{deployFlow.title}}==> 创建目录：备份目录：%s创建成功，拥有者：%s 权限：%s"%(backupCatalog,result['owner'],result['mode']))
+                 CatalogExist = True
+
+        if FileExists and CatalogExists:
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                bfExistCheck = installApp.Runner(
+                    pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="stat",host_list=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              sys.exit(1)
+            ansible_errorMessage_to_Chinese(bfExistCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in bfExistCheck['contacted'].items():
+              if result['stat']['exists]' and result['stat']['isdir'] is False:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：%s 存在，本次部署为重复部署，已备份无需再备份，拥有者：%s 权限：%s"%(backupFilename,result['stat']['pw_name'],result['stat']['mode']))
+              else:
+                if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+                  createCatalog = change_nginx.Runner(
+                    pattern="devpos",forks=0,sudo=True,sudo_user=installUser,module_name="shell",host_list=inventoryFileName).run()
+                else:
+                  deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+                  sys.exit(1)
+                ansible_errorMessage_to_Chinese(createCatalog,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in createCataloglog['contacted'].items():
+              if result['changed']:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 执行备份：%s"%(result['cmd']))
+              else:
+                deployLogger.error(u"|----{{deployFlow.title}}==> 执行备份：%s 失败"%(backupCatalog))
+                sys.exit(1)
+
+            if os.path.exits(inventoryFileName) and os.path.isfile(inventoryFileName):
+                bfCheck = installApp.Runner(
+                     pattern="devpos",forks=0,sudo=True,module_args="path="+backupFilename,module_name="shell",host_list=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              sys.exit(1)
+            ansible_errorMessage_to_Chinese(bfCheck,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+
+            for(IPaddress,result) in bfCheck['contacted'].items():
+              if result['stat']['exists]' and result['stat']['isdir'] is False:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 备份检查：%s 存在，<font colod='#00bb00'><b>备份成功</b></font>，拥有者：%s 权限：%s"%(backupFileName,result=['stat']['mode']))
+                temps            = []
+                temps.append(backupFilename)
+                posres           = post_form_data_to_interface(deployconfig().post_backupfile_list()+'/'+IPadress+'/{{deployFlow.appCode}}/{{deployFlow.appTaskId}}',temps)
+                temps.remove(bacupFilename)
+                if posres is None:
+                  sys.exit(1)
+              else:
+                deployLogger.error(u"|---->{{deployFlow.title}}==> 备份检查：%s不存在，备份失败"%(backupFileName))  
+                sys.exit(1)
+          if dirReady:
+            if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+              deployScript = change_nginx.Runner(
+                pattern="devpos",forks=0,sudo=True,modules_args="src="+sAppPackage+" dest="+dAppPackageName+" owner="+installUser+" group="+installUser+" mode=0644 force=yes",
+                module_name="copy",
+                host_list=inventoryFileName).run()
+            else:
+              deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+              sys.exit(1)
+            ansible_errorMessage_to_Chinese(deployScript,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}',tfileName=sourceFile)
+            for(IPaddress,result) in deployScript['contacted'].items():
+              if result['owner'] ==installUser:
+                deployLogger.info(u"|---->{{deployFlow.title}}==> 部署配置：部署到%s成功，拥有者：%s 权限：%s"%(destinationFile,result['owner'],result'[mode']))
+              else:
+                deployLogger.error(u"|----{{deployFlow.title}}==> 部署配置：部署%s到%s失败"%(sourceFile,destinationFile))
+                sys.exit(1)
+          else:
+            deployLogger.error(u"|----{{deployFlow.title}}==>检测目录：%s不存在"%(cfgCatalog))
+
+    if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+      checkStartScript = change_nginx.Runner(
+        pattern="devpos",forks=0,sudo=True,modules_args="path="+startStartScript,
+        module_name="stat",
+        host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(checkStartScript,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+    for(IPaddress,result) in checkStartScript['contacted'].items():
+      if result['stat'['exists']:
+        deployLogger.info(u"|---->{{deployFlow.title}}==> 检测脚本：节点机:%s,%s存在，拥有者：%s 权限：%s MD5:%s"%(IPaddress,startStartScript,result['stat']['pw_name'],result['stat']['mode'],result['stat']['md5']))
+        startScriptReady = True
+      else:
+        deployLogger.error(u"|----{{deployFlow.title}}==> 检测脚本：%s不存在，请到节点机%s检查%s是否正确安装"%(startStartScript,IPaddress,installCatalog))
+        startScriptReady = False
+        sys.exit(1)
+
+    if startScriptReady:
+      if os.path.exists(inventoryFileName) and os.path.isfile(inventoryFileName):
+        ansibleRunScript = change_nginx.Runner(pattern="devpos",forks=0,sudo=True,modules_args="path="+startStartScript,
+        module_name="shell",
+        host_list=inventoryFileName).run()
+    else:
+      deployLogger.error(u"|---->{{deployFlow.title}}==> 没有找到主机清单文件：%s"%(inventoryFileName))
+      sys.exit(1)
+    ansible_errorMessage_to_Chinese(ansibleRunScript,title='{{deployFlow.title}}',deployIp='{globalParams.deployIp}}',deployuser='{{globalParams.deployUser}}')
+    for(IPaddressSecond,result) in ansibleRunScript['contacted'].items():
+      if resultSecond['changed']:
+        if 'reload OK' in resultSecond['stdout']:
+          deployLogger.info(u"|---->{{deployFlow.title}}==> 执行脚本：节点机:%s，执行：<font color='#0000E3'><b>%s </b></font>，执行结果：reload 成功"%(IPaddressSecond,resultSecond['cmd']))
+          deployLogger.info(u"|---->{{deployFlow.title}}==> <font color='#FF0000'>提示：请用浏览器访问对应的应用来验证是否生效，这里的reload成功仅表示nginx配置没有语法错误</font>")
+        elif "ISSTOPPED" in resultSecond['stdout']:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 执行脚本：节点机:%s，执行：<font color='#0000E3'><b>%s </b></font>，执行结果：reload 失败，原因是nginx没有启动"%(IPaddressSecond,resultSecond['cmd']))
+          sys.exit(1)
+        else:
+          deployLogger.error(u"|---->{{deployFlow.title}}==> 执行脚本：节点机:%s，执行：<font color='#0000E3'><b>%s </b></font>，执行结果：reload 失败信息：%s"%(IPaddressSecond,resultSecond['cmd'],resultSecond['stdout']))
+          sys.exit(1)
+
+except Exception as e:
+    deployLogger.error(u"部署机：{{globalParams.deployIp}} 执行{{deployFlow.title}}异常，异常信息：%s"%(e))
+    traceback.print_exc()
+    sys.exit(1)
+
+
